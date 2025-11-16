@@ -53,6 +53,9 @@ class WatermarkDetector:
         self.dilation_kernel_size = dilation_kernel_size
         self.roi = None
 
+    def reset_roi(self):
+        self.roi = None
+
     def select_roi_from_image(self, image):
         frame = image.copy()
 
@@ -100,8 +103,19 @@ class WatermarkDetector:
         sample_images = images[:self.num_sample_frames]
         masks = [self.detect_watermark_in_frame(frame) for frame in sample_images]
 
-        final_mask = sum((mask == 255).astype(np.uint8) for mask in masks)
-        final_mask = np.where(final_mask >= self.min_frame_count, 255, 0).astype(np.uint8)
+        if not masks:
+            raise ValueError("No se pudieron generar máscaras de marca de agua")
+
+        final_mask = np.zeros_like(masks[0], dtype=np.uint8)
+        for mask in masks:
+            if mask.shape != final_mask.shape:
+                raise ValueError(
+                    "Las imágenes proporcionadas deben tener el mismo tamaño para generar la máscara"
+                )
+            final_mask = cv2.add(final_mask, (mask == 255).astype(np.uint8))
+
+        threshold = min(self.min_frame_count, len(masks))
+        final_mask = np.where(final_mask >= threshold, 255, 0).astype(np.uint8)
 
         kernel = np.ones((self.dilation_kernel_size, self.dilation_kernel_size), np.uint8)
         dilated_mask = cv2.dilate(final_mask, kernel, iterations=2)
@@ -244,20 +258,20 @@ def load_images_from_files(uploaded_files):
     return images, filenames
 
 
-def process_images(images, filenames, output_dir, watermark_mask, model, config, detector):
-    if watermark_mask is None:
-        raise ValueError("La máscara de marca de agua no está disponible")
-
-    y_min, y_max, x_min, x_max = detector.get_roi_coordinates(watermark_mask)
-    roi_coords = (y_min, y_max, x_min, x_max)
-    roi_mask = detector.extract_roi_mask(watermark_mask, roi_coords)
-
-    processor = WatermarkProcessor(model, config, roi_coords, roi_mask)
-
+def process_images(images, filenames, output_dir, model, config, detector):
     start_time = time.time()
     logs = []
 
     for image, filename in zip(images, filenames):
+        detector.reset_roi()
+        watermark_mask = detector.generate_mask_from_images([image])
+
+        y_min, y_max, x_min, x_max = detector.get_roi_coordinates(watermark_mask)
+        roi_coords = (y_min, y_max, x_min, x_max)
+        roi_mask = detector.extract_roi_mask(watermark_mask, roi_coords)
+
+        processor = WatermarkProcessor(model, config, roi_coords, roi_mask)
+
         result = processor.process_frame(image)
         name, ext = os.path.splitext(filename)
         output_path = os.path.join(output_dir, f"{name}_clean{ext or '.png'}")
@@ -308,16 +322,14 @@ def process_images_from_interface(files, output_directory):
 
     model, config = get_or_initialize_model()
 
-    watermark_mask = watermark_detector.generate_mask_from_images(images)
-
-    return process_images(images, filenames, output_directory, watermark_mask, model, config, watermark_detector)
+    return process_images(images, filenames, output_directory, model, config, watermark_detector)
 
 
 def launch_interface():
     description = (
-        "Sube varias imágenes que compartan la misma marca de agua. "
-        "El sistema te pedirá seleccionar manualmente el ROI en la primera imagen mediante una ventana emergente. "
-        "Luego, todas las imágenes se procesarán y se guardarán en el directorio especificado."
+        "Sube varias imágenes, incluso si la marca de agua aparece en lugares distintos. "
+        "El sistema te pedirá seleccionar manualmente el ROI en cada imagen mediante una ventana emergente. "
+        "Luego, cada imagen se procesará y se guardará en el directorio especificado."
     )
 
     iface = gr.Interface(
