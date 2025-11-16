@@ -47,10 +47,21 @@ def _patch_gradio_json_schema_bug():
 _patch_gradio_json_schema_bug()
 
 class WatermarkDetector:
-    def __init__(self, num_sample_frames=10, min_frame_count=7, dilation_kernel_size=5):
+    def __init__(
+        self,
+        num_sample_frames=10,
+        min_frame_count=7,
+        dilation_kernel_size=5,
+        closing_kernel_size=5,
+        refinement_iterations=2,
+        default_margin=50,
+    ):
         self.num_sample_frames = num_sample_frames
         self.min_frame_count = min_frame_count
         self.dilation_kernel_size = dilation_kernel_size
+        self.closing_kernel_size = closing_kernel_size
+        self.refinement_iterations = refinement_iterations
+        self.default_margin = default_margin
         self.roi = None
 
     def reset_roi(self):
@@ -80,16 +91,39 @@ class WatermarkDetector:
 
         return self.roi
 
+    def _build_roi_mask(self, roi_frame):
+        gray_frame = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray_frame, (5, 5), 0)
+
+        _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        adaptive = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+
+        gradient = cv2.morphologyEx(blurred, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8))
+        _, gradient_mask = cv2.threshold(gradient, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        combined = cv2.bitwise_or(cv2.bitwise_and(otsu, adaptive), gradient_mask)
+        return self._refine_mask(combined)
+
+    def _refine_mask(self, mask):
+        kernel = np.ones((self.closing_kernel_size, self.closing_kernel_size), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=self.refinement_iterations)
+        mask = cv2.dilate(mask, kernel, iterations=1)
+        mask = cv2.erode(mask, np.ones((3, 3), np.uint8), iterations=1)
+        mask = cv2.medianBlur(mask, 5)
+        return np.where(mask > 0, 255, 0).astype(np.uint8)
+
     def detect_watermark_in_frame(self, frame):
         if self.roi is None:
             raise ValueError("ROI hasn't been selected yet. Call select_roi_from_image first.")
 
-        roi_frame = frame[self.roi[1]:self.roi[1] + self.roi[3], self.roi[0]:self.roi[0] + self.roi[2]]
-        gray_frame = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
-        _, binary_frame = cv2.threshold(gray_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        y, x, h, w = self.roi[1], self.roi[0], self.roi[3], self.roi[2]
+        roi_frame = frame[y:y + h, x:x + w]
+        binary_frame = self._build_roi_mask(roi_frame)
 
         mask = np.zeros_like(frame[:, :, 0], dtype=np.uint8)
-        mask[self.roi[1]:self.roi[1] + self.roi[3], self.roi[0]:self.roi[0] + self.roi[2]] = binary_frame
+        mask[y:y + h, x:x + w] = binary_frame
 
         return mask
 
@@ -120,9 +154,11 @@ class WatermarkDetector:
         kernel = np.ones((self.dilation_kernel_size, self.dilation_kernel_size), np.uint8)
         dilated_mask = cv2.dilate(final_mask, kernel, iterations=2)
 
-        return dilated_mask
-    
-    def get_roi_coordinates(self, watermark_mask, margin=50):
+        return self._refine_mask(dilated_mask)
+
+    def get_roi_coordinates(self, watermark_mask, margin=None):
+        if margin is None:
+            margin = self.default_margin
         y_indices, x_indices = np.where(watermark_mask > 0)
         if len(y_indices) == 0 or len(x_indices) == 0:
             raise ValueError("No watermark region found in mask")
