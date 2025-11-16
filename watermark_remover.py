@@ -177,18 +177,24 @@ def load_images_from_files(uploaded_files):
     filenames = []
 
     for file_obj in uploaded_files:
-        file_path = getattr(file_obj, "name", None)
+        file_path = None
         image = None
 
-        if file_path and os.path.exists(file_path):
+        if isinstance(file_obj, str) and os.path.exists(file_obj):
+            file_path = file_obj
             image = cv2.imread(file_path)
         else:
-            try:
-                file_obj.seek(0)
-                file_bytes = np.frombuffer(file_obj.read(), np.uint8)
-                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            except Exception:
-                image = None
+            file_path = getattr(file_obj, "name", None)
+
+            if file_path and os.path.exists(file_path):
+                image = cv2.imread(file_path)
+            else:
+                try:
+                    file_obj.seek(0)
+                    file_bytes = np.frombuffer(file_obj.read(), np.uint8)
+                    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                except Exception:
+                    image = None
 
         if image is None:
             continue
@@ -281,7 +287,7 @@ def launch_interface():
     iface = gr.Interface(
         fn=process_images_from_interface,
         inputs=[
-            gr.File(label="Imágenes", file_count="multiple", type="file"),
+            gr.File(label="Imágenes", file_count="multiple", type="filepath"),
             gr.Textbox(label="Directorio de salida", value="output"),
         ],
         outputs=gr.Textbox(label="Registro de procesamiento", lines=10),
