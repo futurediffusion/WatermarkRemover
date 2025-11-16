@@ -1,17 +1,14 @@
-import cv2
-import numpy as np
-import glob
-from moviepy import VideoFileClip
 import os
-import sys
-import argparse
-from tqdm import tqdm
-from lama_cleaner.model_manager import ModelManager
-from lama_cleaner.schema import Config, HDStrategy
 import time
 from datetime import timedelta
+
+import cv2
+import gradio as gr
 import numpy as np
 import torch
+
+from lama_cleaner.model_manager import ModelManager
+from lama_cleaner.schema import Config, HDStrategy
 
 class WatermarkDetector:
     def __init__(self, num_sample_frames=10, min_frame_count=7, dilation_kernel_size=5):
@@ -19,28 +16,16 @@ class WatermarkDetector:
         self.min_frame_count = min_frame_count
         self.dilation_kernel_size = dilation_kernel_size
         self.roi = None
-    
-    def get_first_valid_frame(self, video_clip, threshold=10):
-        total_frames = int(video_clip.fps * video_clip.duration)
-        frame_indices = [int(i * total_frames / self.num_sample_frames) for i in range(self.num_sample_frames)]
 
-        for idx in frame_indices:
-            frame = video_clip.get_frame(idx / video_clip.fps)
-            if frame.mean() > threshold:
-                return frame
-
-        return video_clip.get_frame(0)
-    
-    def select_roi(self, video_clip):
-        frame = self.get_first_valid_frame(video_clip)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    def select_roi_from_image(self, image):
+        frame = image.copy()
 
         display_height = 720
         scale_factor = display_height / frame.shape[0]
         display_width = int(frame.shape[1] * scale_factor)
         display_frame = cv2.resize(frame, (display_width, display_height))
 
-        instructions = "Select ROI and press SPACE or ENTER"
+        instructions = "Selecciona el ROI y presiona ESPACIO o ENTER"
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(display_frame, instructions, (10, 30), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
 
@@ -48,18 +33,18 @@ class WatermarkDetector:
         cv2.destroyAllWindows()
 
         self.roi = (
-            int(r[0] / scale_factor), 
-            int(r[1] / scale_factor), 
-            int(r[2] / scale_factor), 
+            int(r[0] / scale_factor),
+            int(r[1] / scale_factor),
+            int(r[2] / scale_factor),
             int(r[3] / scale_factor)
         )
-        
+
         return self.roi
-    
+
     def detect_watermark_in_frame(self, frame):
         if self.roi is None:
-            raise ValueError("ROI hasn't been selected yet. Call select_roi first.")
-            
+            raise ValueError("ROI hasn't been selected yet. Call select_roi_from_image first.")
+
         roi_frame = frame[self.roi[1]:self.roi[1] + self.roi[3], self.roi[0]:self.roi[0] + self.roi[2]]
         gray_frame = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
         _, binary_frame = cv2.threshold(gray_frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -68,23 +53,23 @@ class WatermarkDetector:
         mask[self.roi[1]:self.roi[1] + self.roi[3], self.roi[0]:self.roi[0] + self.roi[2]] = binary_frame
 
         return mask
-    
-    def generate_mask(self, video_clip):
+
+    def generate_mask_from_images(self, images):
+        if not images:
+            raise ValueError("No hay imágenes disponibles para generar la máscara")
+
         if self.roi is None:
-            self.select_roi(video_clip)
-            
-        total_frames = int(video_clip.duration * video_clip.fps)
-        frame_indices = [int(i * total_frames / self.num_sample_frames) for i in range(self.num_sample_frames)]
-        frames = [video_clip.get_frame(idx / video_clip.fps) for idx in frame_indices]
-        
-        masks = [self.detect_watermark_in_frame(frame) for frame in frames]
-        
+            self.select_roi_from_image(images[0])
+
+        sample_images = images[:self.num_sample_frames]
+        masks = [self.detect_watermark_in_frame(frame) for frame in sample_images]
+
         final_mask = sum((mask == 255).astype(np.uint8) for mask in masks)
         final_mask = np.where(final_mask >= self.min_frame_count, 255, 0).astype(np.uint8)
-        
+
         kernel = np.ones((self.dilation_kernel_size, self.dilation_kernel_size), np.uint8)
         dilated_mask = cv2.dilate(final_mask, kernel, iterations=2)
-        
+
         return dilated_mask
     
     def get_roi_coordinates(self, watermark_mask, margin=50):
@@ -103,38 +88,8 @@ class WatermarkDetector:
         y_min, y_max, x_min, x_max = roi_coords
         return watermark_mask[y_min:y_max, x_min:x_max]
     
-    def preview_effect(self, video_clip, watermark_mask, model, config, max_height=720):
-        frame = self.get_first_valid_frame(video_clip)
-        
-        result = lama_inpaint(frame, watermark_mask, model, config)
-        
-        h, w = result.shape[:2]
-        
-        scale_factor = max_height / h
-        display_width = int(w * scale_factor)
-
-        display_result = cv2.resize(result, (display_width, max_height))
-        
-        instructions = "Processed Result | Press ENTER to continue, ESC to exit"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(display_result, instructions, (10, 30), font, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        
-        cv2.imshow("Watermark Removal Result", display_result)
-        key = cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        
-        return key != 27
-
-
-def get_video_info(video_clip):
-    info = {
-        "resolution": f"{int(video_clip.w)}x{int(video_clip.h)}",
-        "duration": f"{video_clip.duration:.2f}秒",
-        "total_frames": int(video_clip.duration * video_clip.fps),
-        "fps": f"{video_clip.fps:.2f}",
-        "format": "mp4"
-    }
-    return info
+    def preview_effect(self, *_args, **_kwargs):
+        raise NotImplementedError("La vista previa solo estaba disponible en el modo de video")
 
 def check_gpu():
     if torch.cuda.is_available():
@@ -188,150 +143,154 @@ def ensure_directory_exists(directory):
         print(f"No write permission in directory {directory}: {e}")
         return False
 
-def is_valid_video_file(file):
-    try:
-        with VideoFileClip(file) as video_clip:
-            return True
-    except Exception as e:
-        print(f"Invalid video file: {file}, Error: {e}")
-        return False
-
 class WatermarkProcessor:
     def __init__(self, model, config, roi_coords, roi_mask):
         self.model = model
         self.config = config
         self.roi_coords = roi_coords
         self.roi_mask = roi_mask
-    
+
     def extract_roi(self, frame_bgr):
         y_min, y_max, x_min, x_max = self.roi_coords
         return frame_bgr[y_min:y_max, x_min:x_max]
-    
-    def process_frame(self, frame_bgr, frame_index):
+
+    def process_frame(self, frame_bgr):
         y_min, y_max, x_min, x_max = self.roi_coords
         roi = self.extract_roi(frame_bgr)
-        
+
         processed_roi = lama_inpaint(roi, self.roi_mask, self.model, self.config)
         processed_roi = cv2.cvtColor(processed_roi, cv2.COLOR_BGR2RGB)
-        
+
         blend_mask = cv2.GaussianBlur(self.roi_mask.astype(np.float32), (21, 21), 0) / 255.0
-        
+
         result = frame_bgr.copy()
         result[y_min:y_max, x_min:x_max] = (
-            blend_mask[:, :, np.newaxis] * processed_roi + 
+            blend_mask[:, :, np.newaxis] * processed_roi +
             (1 - blend_mask[:, :, np.newaxis]) * roi
         )
-        
+
         return result
 
 
-def process_video(video_clip, output_path, watermark_mask, model, config):
-    video_info = get_video_info(video_clip)
-    start_time = time.time()
-    
-    y_indices, x_indices = np.where(watermark_mask > 0)
-    if len(y_indices) == 0 or len(x_indices) == 0:
-        print("No watermark region found in mask")
-        return video_info
-        
-    margin = 10
-    y_min, y_max = max(0, np.min(y_indices) - margin), min(video_clip.h, np.max(y_indices) + margin)
-    x_min, x_max = max(0, np.min(x_indices) - margin), min(video_clip.w, np.max(x_indices) + margin)
+def load_images_from_files(uploaded_files):
+    images = []
+    filenames = []
 
+    for file_obj in uploaded_files:
+        file_path = getattr(file_obj, "name", None)
+        image = None
+
+        if file_path and os.path.exists(file_path):
+            image = cv2.imread(file_path)
+        else:
+            try:
+                file_obj.seek(0)
+                file_bytes = np.frombuffer(file_obj.read(), np.uint8)
+                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            except Exception:
+                image = None
+
+        if image is None:
+            continue
+
+        images.append(image)
+        if file_path:
+            filenames.append(os.path.basename(file_path))
+        else:
+            filenames.append(f"imagen_{len(filenames) + 1}.png")
+
+    return images, filenames
+
+
+def process_images(images, filenames, output_dir, watermark_mask, model, config, detector):
+    if watermark_mask is None:
+        raise ValueError("La máscara de marca de agua no está disponible")
+
+    y_min, y_max, x_min, x_max = detector.get_roi_coordinates(watermark_mask)
     roi_coords = (y_min, y_max, x_min, x_max)
-    roi_mask = watermark_mask[y_min:y_max, x_min:x_max]
+    roi_mask = detector.extract_roi_mask(watermark_mask, roi_coords)
 
     processor = WatermarkProcessor(model, config, roi_coords, roi_mask)
 
-    frame_count = 0
-    total_frames = video_info["total_frames"]
-    progress_bar = tqdm(total=total_frames, desc="Processing Frames", unit="frames")
-    
-    def process_frame_wrapper(frame):
-        nonlocal frame_count
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        result = processor.process_frame(frame_bgr, frame_count)
-        
-        frame_count += 1
-        progress_bar.update(1)
-        return cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
-    
-    processed_video = video_clip.image_transform(lambda frame: process_frame_wrapper(frame))
-    processed_video.write_videofile(f"{output_path}.mp4", codec="libx264", logger=None)
-    
-    progress_bar.close()
-    
-    end_time = time.time()
-    processing_time = end_time - start_time
-    processing_info = {
-        "video_info": video_info,
-        "processing_time": str(timedelta(seconds=int(processing_time)))
-    }
-    
-    return processing_info
+    start_time = time.time()
+    logs = []
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Video Watermark Remover")
-    parser.add_argument("--input", "-i", type=str, default=".", help="Input directory containing videos")
-    parser.add_argument("--output", "-o", type=str, default="output", help="Output directory")
-    parser.add_argument("--preview", "-p", action="store_true", help="Preview effect before processing")
-    return parser.parse_args()
+    for image, filename in zip(images, filenames):
+        result = processor.process_frame(image)
+        name, ext = os.path.splitext(filename)
+        output_path = os.path.join(output_dir, f"{name}_clean{ext or '.png'}")
+        cv2.imwrite(output_path, result)
+        logs.append(f"Imagen procesada: {output_path}")
+
+    processing_time = str(timedelta(seconds=int(time.time() - start_time)))
+    logs.append(f"Tiempo total de procesamiento: {processing_time}")
+
+    return "\n".join(logs)
+
+
+watermark_detector = WatermarkDetector()
+lama_model = None
+lama_config = None
+selected_device = None
+
+
+def get_or_initialize_model():
+    global lama_model, lama_config, selected_device
+
+    if lama_model is None or lama_config is None:
+        has_gpu, device, gpu_name = check_gpu()
+        selected_device = "cuda" if has_gpu else "cpu"
+        lama_model, lama_config = initialize_lama(device=selected_device)
+
+        if has_gpu:
+            print(f"GPU detectada: {gpu_name}")
+        else:
+            print("No se detectó GPU, usando CPU")
+
+    return lama_model, lama_config
+
+
+def process_images_from_interface(files, output_directory):
+    if not files:
+        return "Sube al menos una imagen para procesar."
+
+    output_directory = output_directory.strip() or "output"
+
+    if not ensure_directory_exists(output_directory):
+        return f"No se pudo crear o acceder al directorio {output_directory}"
+
+    images, filenames = load_images_from_files(files)
+
+    if not images:
+        return "No se pudieron cargar las imágenes proporcionadas."
+
+    model, config = get_or_initialize_model()
+
+    watermark_mask = watermark_detector.generate_mask_from_images(images)
+
+    return process_images(images, filenames, output_directory, watermark_mask, model, config, watermark_detector)
+
+
+def launch_interface():
+    description = (
+        "Sube varias imágenes que compartan la misma marca de agua. "
+        "El sistema te pedirá seleccionar manualmente el ROI en la primera imagen mediante una ventana emergente. "
+        "Luego, todas las imágenes se procesarán y se guardarán en el directorio especificado."
+    )
+
+    iface = gr.Interface(
+        fn=process_images_from_interface,
+        inputs=[
+            gr.File(label="Imágenes", file_count="multiple", type="file"),
+            gr.Textbox(label="Directorio de salida", value="output"),
+        ],
+        outputs=gr.Textbox(label="Registro de procesamiento", lines=10),
+        title="Eliminador de marcas de agua",
+        description=description,
+    )
+
+    iface.launch()
+
 
 if __name__ == "__main__":
-    args = parse_args()
-    
-    input_dir = args.input
-    output_dir = args.output
-    preview_enabled = args.preview
-
-    has_gpu, device, gpu_name = check_gpu()
-
-    if has_gpu:
-        print(f"GPU detected: {gpu_name}")
-        print("Using GPU for processing")
-        use_device = "cuda"
-    else:
-        print("No GPU detected, using CPU for processing")
-        use_device = "cpu"
-    
-    if not ensure_directory_exists(output_dir):
-        sys.exit(1)
-    
-    if os.path.isdir(input_dir):
-        videos = [f for f in glob.glob(os.path.join(input_dir, "*")) if os.path.isfile(f) and is_valid_video_file(f)]
-    else:
-        print(f"Input path {input_dir} is not a directory")
-        sys.exit(1)
-    
-    if not videos:
-        print(f"No valid video files found in {input_dir}")
-        sys.exit(1)
-    
-    watermark_detector = WatermarkDetector()
-    watermark_mask = None
-    
-    lama_model, lama_config = initialize_lama(device=use_device)
-    
-    for video in videos:
-        print(f"Processing {video}")
-        video_clip = VideoFileClip(video)
-
-        if watermark_mask is None:
-            watermark_mask = watermark_detector.generate_mask(video_clip)
-
-        if preview_enabled:
-            if not watermark_detector.preview_effect(video_clip, watermark_mask, lama_model, lama_config):
-                print("Processing cancelled by user")
-                break
-
-        video_name = os.path.basename(video)
-        output_video_path = os.path.join(output_dir, os.path.splitext(video_name)[0])
-
-        processing_info = process_video(video_clip, output_video_path, watermark_mask, lama_model, lama_config)
-
-        print(f"Successfully processed {video_name}")
-        print(f"  Resolution: {processing_info['video_info']['resolution']}")
-        print(f"  Duration: {processing_info['video_info']['duration']}")
-        print(f"  FPS: {processing_info['video_info']['fps']}")
-        print(f"  Total frames: {processing_info['video_info']['total_frames']}")
-        print(f"  Processing time: {processing_info['processing_time']}")
+    launch_interface()
