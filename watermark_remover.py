@@ -295,7 +295,15 @@ def launch_interface():
         description=description,
     )
 
-    iface.launch()
+    try:
+        iface.launch(server_name="127.0.0.1")
+    except ValueError as err:
+        error_message = str(err)
+        if "share=True" in error_message or "localhost is not accessible" in error_message:
+            print("[ADVERTENCIA] No se pudo acceder a localhost. Creando un enlace compartido automáticamente...")
+            iface.launch(share=True)
+        else:
+            raise
 
 
 if __name__ == "__main__":
