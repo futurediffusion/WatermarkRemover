@@ -10,6 +10,42 @@ import torch
 from lama_cleaner.model_manager import ModelManager
 from lama_cleaner.schema import Config, HDStrategy
 
+
+def _patch_gradio_json_schema_bug():
+    """Mitigate gradio_client JSON schema handling crash.
+
+    gradio>=4.44.0 introduced stricter JSON schema generation that may
+    include boolean values (e.g. ``additionalProperties=False``). The
+    helper ``gradio_client.utils._json_schema_to_python_type`` expected
+    dictionaries and crashed with ``TypeError: argument of type 'bool'
+    is not iterable`` when it encountered these booleans.  The Gradio UI
+    ends up failing during startup when the /info endpoint is queried.
+
+    This function monkey patches the helper to gracefully handle boolean
+    schemas by converting them into descriptive strings instead of
+    raising.  Once the upstream library fixes the behaviour this patch is
+    harmless because we only wrap the private helper when it exists.
+    """
+
+    try:
+        from gradio_client import utils as gradio_utils
+    except Exception:
+        return
+
+    original = getattr(gradio_utils, "_json_schema_to_python_type", None)
+    if original is None:
+        return
+
+    def _safe_json_schema_to_python_type(schema, defs=None):
+        if isinstance(schema, bool):
+            return "bool" if schema else "Never"
+        return original(schema, defs)
+
+    gradio_utils._json_schema_to_python_type = _safe_json_schema_to_python_type
+
+
+_patch_gradio_json_schema_bug()
+
 class WatermarkDetector:
     def __init__(self, num_sample_frames=10, min_frame_count=7, dilation_kernel_size=5):
         self.num_sample_frames = num_sample_frames
