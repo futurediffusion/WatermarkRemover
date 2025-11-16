@@ -1,133 +1,125 @@
 # WatermarkRemover
 
-一个基于LAMA模型的视频水印移除工具，能够批量清除视频中的固定水印。
+WatermarkRemover es una herramienta basada en el modelo LaMa que permite eliminar de forma masiva marcas de agua fijas en videos. Solo necesitas indicar una carpeta con tus videos y seleccionar manualmente la región que quieres limpiar: el resto del flujo se ejecuta automáticamente.
 
-## 效果展示
+## Ejemplo visual
 
-原始帧
-<a href=''><img src='https://raw.githubusercontent.com/lxulxu/WatermarkRemover/master/image/origin.jpg'>
+Fotograma original  
+<a href=''><img src='https://raw.githubusercontent.com/lxulxu/WatermarkRemover/master/image/origin.jpg'></a>
 
-去除水印
-<a href=''><img src='https://raw.githubusercontent.com/lxulxu/WatermarkRemover/master/image/no_watermark.jpg'>
+Fotograma sin marca de agua  
+<a href=''><img src='https://raw.githubusercontent.com/lxulxu/WatermarkRemover/master/image/no_watermark.jpg'></a>
 
-## 系统要求
+## Requisitos
 
-- Python 3.10
+- Windows, macOS o Linux con Python 3.10.
+- Para aceleración por GPU: tarjeta NVIDIA compatible con CUDA y controladores actualizados.
 
-## 安装步骤
+## Instalación manual
 
-- 克隆仓库
+1. Clona el repositorio:
+   ```bash
+   git clone https://github.com/lxulxu/WatermarkRemover.git
+   cd WatermarkRemover
+   ```
+2. (Opcional) Crea y activa un entorno virtual:
+   ```bash
+   python -m venv venv
+   # Windows
+   venv\Scripts\activate
+   # macOS / Linux
+   source venv/bin/activate
+   ```
+3. Instala las dependencias base:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Instala PyTorch:
+   - **CPU** (funciona en cualquier equipo)
+     ```bash
+     pip install torch
+     ```
+   - **GPU (NVIDIA)**
+     1. Instala CUDA Toolkit desde la [página oficial](https://developer.nvidia.com/cuda-downloads).
+     2. Instala cuDNN desde la [página oficial](https://developer.nvidia.com/cudnn-downloads).
+     3. Instala la versión de PyTorch que coincida con tu CUDA. Ejemplo:
+        ```bash
+        pip3 install torch==2.6.0+cu126 torchvision==0.21.0 torchaudio==2.6.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+        ```
 
-```bash
-git clone https://github.com/lxulxu/WatermarkRemover.git
-cd WatermarkRemover
-```
+El programa detecta automáticamente si hay una GPU disponible e informa el modo utilizado.
 
-- 创建并激活虚拟环境（可选，推荐）
+## Uso
 
-```bash
-python -m venv venv
-# Windows
-venv\Scripts\activate
-```
+### Ejecución básica
 
-- 安装基础依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-- 安装PyTorch（二选一）
-
-  1. CPU版本
-
-    ```bash
-    pip install torch
-    ```
-  
-  2. GPU版本（需要NVIDIA显卡）
-
-      - 安装CUDA Toolkit
-
-  	    访问 [NVIDIA CUDA下载页面](https://developer.nvidia.com/cuda-downloads)，选择对应的操作系统和版本。
-
-      - 安装cuDNN
-  
-        访问 [NVIDIA cuDNN下载页面](https://developer.nvidia.com/cudnn-downloads)，选择与CUDA版本匹配的cuDNN。
-
-      - 安装GPU版本的PyTorch
-
-        访问 [PyTorch官方网站](https://pytorch.org/get-started/locally/)，选择与CUDA版本匹配的命令安装，例如：
-        
-  
-         ```bash
-          pip3 install torch==2.6.0+cu126 torchvision==0.21.0 torchaudio==2.6.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-         ```
-  
-
-
-​	程序会自动检测是否有可用的GPU输出相关信息并自动选择处理方式。
-
-## 使用方法
-
-### 基本用法
-
-处理单个视频目录中的所有视频：
+Procesa todos los videos dentro de una carpeta y guarda los resultados en otra:
 
 ```bash
-python watermark_remover.py --input /path/to/videos --output /path/to/output
+python watermark_remover.py --input /ruta/a/videos --output /ruta/de/salida
 ```
 
-### 带预览的处理
+### Con vista previa
+
+Activa una vista previa antes de confirmar el proceso para cada región seleccionada:
 
 ```bash
-python watermark_remover.py --input /path/to/videos --output /path/to/output --preview
+python watermark_remover.py --input /ruta/a/videos --output /ruta/de/salida --preview
 ```
 
-### 命令行参数
+### Parámetros CLI
 
-| 参数        | 简写 | 说明                   | 默认值         |
-| ----------- | ---- | ---------------------- | -------------- |
-| `--input`   | `-i` | 包含视频文件的输入目录 | `.` (当前目录) |
-| `--output`  | `-o` | 处理后视频的输出目录   | `output`       |
-| `--preview` | `-p` | 启用处理效果预览       | 禁用           |
+| Parámetro       | Atajo | Descripción                               | Valor por defecto |
+| --------------- | ----- | ----------------------------------------- | ----------------- |
+| `--input`       | `-i`  | Carpeta que contiene los videos originales| `.` (directorio actual) |
+| `--output`      | `-o`  | Carpeta donde se guardarán los resultados | `output` |
+| `--preview`     | `-p`  | Activa la vista previa interactiva        | Desactivada |
 
-## 工作流程
+### Flujo de trabajo
 
-1. **水印区域选择**：程序会显示视频一帧，手动框选水印区域后按**SPACE**或**ENTER**键继续。
-2. **效果预览**（可选）：显示处理效果预览，按**SPACE**或**ENTER**键确认或按**ESC**键取消退出程序。
-3. **视频处理**：初次运行程序使用LAMA模型需较长时间下载模型。
-4. **输出结果**： MP4格式视频
+1. **Selección de marca de agua**: se muestra un fotograma del primer video. Usa el mouse para dibujar el rectángulo de la marca y presiona **SPACE** o **ENTER** para continuar.
+2. **Vista previa** (opcional): revisa el resultado del parche y confirma con **SPACE/ENTER** o cancela con **ESC**.
+3. **Procesamiento**: al ejecutarse por primera vez, LaMa descarga automáticamente los pesos del modelo.
+4. **Salida**: cada video procesado se exporta como MP4 en la carpeta de salida.
 
-## 局限性
+## Script automático para Windows (`run_watermark_remover.bat`)
 
-- 只能处理固定位置的水印（不支持移动水印）
-- 同一批处理的视频尺寸必须一致
-- 同一批处理的视频水印必须一致
+Para evitar realizar la instalación manual cada vez, se incluye un script que:
 
-## 常见问题
+- Crea un entorno virtual (`venv`) si no existe.
+- Instala las dependencias requeridas solo la primera vez.
+- Inicia `watermark_remover.py` con los parámetros que le indiques.
 
- **Q: GPU未正确启动，程序使用CPU运行**
+### Uso del script
 
- 运行时显示类似信息 `No GPU detected, using CPU for processing`
+1. Asegúrate de tener Python 3.10 en tu PATH.
+2. Haz doble clic en `run_watermark_remover.bat` o ejecútalo desde PowerShell/CMD:
+   ```bat
+   run_watermark_remover.bat --input C:\ruta\videos --output C:\ruta\salida --preview
+   ```
+3. En la primera ejecución el script instalará el entorno y las dependencias. En ejecuciones posteriores únicamente activará el entorno y lanzará el programa.
 
-A: 请按照 [LaMa Cleaner官方安装指南](https://lama-cleaner-docs.vercel.app/install/pip)检查你的环境配置
+## Limitaciones
 
-  - 检查Python版本是否为3.10
-  - 检查已安装PyTorch版本是否有CPU版本，参考LaMa Cleaner官方网页说明
+- Solo funciona con marcas de agua fijas (no se admiten marcas móviles).
+- Todos los videos procesados en el mismo lote deben compartir resolución y posición de marca.
+- Las selecciones se aplican a todos los videos del lote.
 
-    > If Lama Cleaner is not using GPU device, it might CPU version of pytorch is installed, please follow pytorch's get-started(opens in a new tab) to install GPU version.
-  
-  - 确保安装的CUDA、cuDNN和PyTorch版本和显卡兼容
+## Problemas frecuentes
 
-    > 感谢[@VitorX](https://github.com/VitorX)在[#issue11](https://github.com/lxulxu/WatermarkRemover/issues/11#issuecomment-3422248098)中提供的安装步骤
+**P: El programa muestra `No GPU detected, using CPU for processing`.**
 
-    - 查询[NVIDIA CUDA兼容性页面](https://en.wikipedia.org/wiki/CUDA#GPUs_supported)选择对应的CUDA版本
-    - 查询[cuDNN官方页面](developer.nvidia.com/rdp/cudnn-archive)选择对应的cuDNN版本
-    - 查询[PyTorch官方页面](https://pytorch.org/get-started/locally/)选择对应PyTorch版本
+R: Verifica los pasos de instalación de [LaMa Cleaner](https://lama-cleaner-docs.vercel.app/install/pip):
 
-  程序正确检测到GPU会输出`GPU detected: NVIDIA XXX Using GPU for processing `提示信息
+- Confirma que usas Python 3.10.
+- Asegúrate de haber instalado la versión correcta de PyTorch (CPU o GPU).
+- Comprueba la compatibilidad entre tu GPU, CUDA, cuDNN y PyTorch. Puedes apoyarte en estas guías:
+  - [Versiones de CUDA soportadas](https://en.wikipedia.org/wiki/CUDA#GPUs_supported)
+  - [Archivo de versiones de cuDNN](https://developer.nvidia.com/rdp/cudnn-archive)
+  - [Instalador oficial de PyTorch](https://pytorch.org/get-started/locally/)
 
-## Star History
+Si la GPU se detecta correctamente, verás un mensaje similar a `GPU detected: NVIDIA XXX Using GPU for processing`.
+
+## Historial de estrellas
 
 [![Star History Chart](https://api.star-history.com/svg?repos=lxulxu/WatermarkRemover&type=Date)](https://star-history.com/#lxulxu/WatermarkRemover&Date)
